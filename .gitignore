@@ -1,0 +1,12 @@
+_context_md/
+scripts/
+.vscode/
+
+# Runtime-generated, never committed (Setup_Guide.md §08)
+storage/
+.env
+__pycache__/
+*.pyc
+.venv/
+results_smoke.json
+evaluation/results/
