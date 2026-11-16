@@ -50,7 +50,7 @@ from langgraph.graph import END, StateGraph
 
 from src.database.decision_log import Decision, DecisionLog
 from src.guardrails.deterministic import deterministic_guardrail_check
-from src.routing.policy import is_mandatory_escalation, routing_decision
+from src.routing.policy import contains_high_risk_keyword, is_mandatory_escalation, routing_decision
 
 RetrieveFn = Callable[[str, int], list[dict[str, Any]]]
 
@@ -128,15 +128,42 @@ def build_graph(
         return state
 
     def node_route_mandatory(state: PipelineState) -> PipelineState:
+        ticket = state["ticket"]
         intent = state["classification"]["intent"]
-        state["authoritative_mandatory"] = is_mandatory_escalation(intent)
-        if state["authoritative_mandatory"]:
+
+        # Deterministic content scan runs FIRST and independently of the
+        # classified intent — see policy.py's HIGH_RISK_KEYWORDS note
+        # (VAL-0048 post-mortem). A match overrides everything below,
+        # regardless of what intent was classified or how confidently.
+        matched_keyword = contains_high_risk_keyword(f"{ticket['subject']} {ticket['body']}")
+
+        state["authoritative_mandatory"] = matched_keyword is not None or is_mandatory_escalation(intent)
+        if matched_keyword is not None:
+            state["action"] = "escalate"
+            state["reason"] = "deterministic safety net: high-risk keyword detected"
+            state["escalation_reason"] = "mandatory_policy"
+            state["retrieved_docs"] = []
+        elif is_mandatory_escalation(intent):
             state["action"] = "escalate"
             state["reason"] = (
                 f"intent '{intent}' is in MANDATORY_ESCALATION_INTENTS (authoritative code-level policy)"
             )
             state["escalation_reason"] = "mandatory_policy"
             state["retrieved_docs"] = []
+
+        if state["authoritative_mandatory"]:
+            # FR-09 completeness: this path previously jumped straight to
+            # escalation_handoff without ever writing a "routing" stage
+            # record of its own — the specific reason only showed up in the
+            # escalation packet's generic note. Every ticket now gets one
+            # routing-stage Decision Log entry regardless of path.
+            decision_log.record(Decision(
+                ticket_id=ticket["ticket_id"], stage="routing",
+                action_taken="escalate", reason=state["reason"],
+                model_name="src.routing.policy", model_version="1.0",
+                prediction_value=intent, prediction_confidence=state["classification"]["confidence"],
+                requirement_ids=["FR-04"] if matched_keyword is None else ["FR-04", "FR-07"],
+            ))
         return state
 
     def node_retrieve(state: PipelineState) -> PipelineState:

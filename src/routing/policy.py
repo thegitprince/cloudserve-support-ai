@@ -80,6 +80,53 @@ KNOWN_INTENTS: frozenset[str] = frozenset(
 )
 
 
+# --- Deterministic content-level safety net ------------------------------
+# Added 2026-11-16 after a zero-tolerance policy breach in Stage 5 validation
+# (ticket VAL-0048, storage/results_validation_v3.json): a believed-breach
+# ticket ("credentials may have been exposed in breach at another service")
+# was confidently classified as the discretionary intent api_key_issue
+# instead of security_incident. Because is_mandatory_escalation() above is
+# keyed on the CLASSIFIED intent, a classification error that crosses the
+# mandatory/discretionary boundary bypasses the authoritative table entirely
+# — the table is only as safe as the label it's given. This scan is a
+# second, independent gate: it reads the ticket's own words, not the
+# classifier's output, so a misclassification cannot route around it. Same
+# defense-in-depth principle as the deterministic PII/financial-claim check
+# at generation time (src/guardrails/deterministic.py), applied one stage
+# earlier, before any retrieval or generation ever runs.
+#
+# This list is deliberately small and literal (substring match, not a
+# learned classifier) so it is auditable and cheap — it is a backstop for
+# unambiguous risk language, not a replacement for FR-02/FR-04's
+# classification-based routing, which still runs normally when no term
+# matches.
+HIGH_RISK_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "breach",
+        "compromised",
+        "unauthorized access",
+        "exposed credentials",
+        "hacked",
+        "vulnerability",
+        "cve",
+        "legal action",
+        "sue",
+    }
+)
+
+
+def contains_high_risk_keyword(text: str) -> str | None:
+    """Returns the first matched high-risk term (lowercased, as a plain
+    substring match against HIGH_RISK_KEYWORDS), or None if the text
+    contains none. Callers treat any match as grounds to force escalation
+    regardless of classified intent or confidence."""
+    lowered = text.lower()
+    for keyword in HIGH_RISK_KEYWORDS:
+        if keyword in lowered:
+            return keyword
+    return None
+
+
 def is_mandatory_escalation(intent: str) -> bool:
     """The authoritative mandatory-escalation check. Called with the
     classifier's output intent; returns True if this ticket must never
