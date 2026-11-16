@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run evaluation harness smoke test
+        # No GEMINI_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY is set
+        # in this job, by design: LLMModelClient.is_configured() returns
+        # False with no key, so classify_ticket()/generate_response() fall
+        # back to the deterministic HeuristicModelClient (src/models/heuristic.py)
+        # rather than raising — exactly the behaviour CLAUDE.md's Unattended
+        # Gate Rule and Build Spec A11 require when "the model provider is
+        # unavailable... that is not counted against you." This keeps CI
+        # runnable on a clean checkout with no secrets configured at all.
+        run: |
+          python src/evaluate.py --input Capstone_Pack/05_Datasets/development_tickets.json --output storage/ci_results.json --smoke-test
+
+      - name: Fail the build if the smoke test produced any ticket-processing errors
+        # The harness itself never crashes on a bad ticket (that is the
+        # point of A11) — but a non-zero tickets_errored count here would
+        # mean something in the pipeline wiring itself is broken, which CI
+        # exists to catch before merge.
+        run: |
+          python -c "
+          import json, sys
+          report = json.load(open('storage/ci_results.json'))
+          errored = report['volume']['tickets_errored']
+          print(f'tickets_errored: {errored}')
+          sys.exit(1 if errored else 0)
+          "
+
+      - name: Upload smoke-test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-smoke-test-results
+          path: storage/ci_results.json

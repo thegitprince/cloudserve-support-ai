@@ -1,0 +1,39 @@
+# Pinned to the versions actually installed and tested in this project's
+# environment (checked via `pip list` on 2026-11-17), not the generic
+# Capstone_Pack/06_Configuration/requirements.txt template — that template
+# pins much older releases (e.g. chromadb==0.3.21, langgraph==0.0.20) that
+# predate the APIs this codebase actually calls (chromadb's PersistentClient
+# + embedding_functions.SentenceTransformerEmbeddingFunction,
+# langgraph.graph.StateGraph's current add_conditional_edges signature).
+# Installing the template's pins would not reproduce a working environment
+# for this code — see Setup_Guide.md's own warning: "Chunks that are too
+# large..." and the CI note "That is precisely what CI is for. Fix the
+# dependency rather than skipping the test."
+#
+# Only packages this codebase actually imports are listed (verified by
+# grepping every import in src/); packages present in the template but never
+# imported here (pandas, SQLAlchemy, psycopg2-binary, langchain-community,
+# python-json-logger, jupyter/ipython, python-multipart, aiohttp) are
+# omitted rather than carried forward unused.
+
+# Orchestration
+langgraph==1.2.9
+
+# Vector store & embeddings
+chromadb==1.5.9
+sentence-transformers==6.2.0
+
+# Model client (src/models/client.py) — raw HTTP, no provider SDK required
+requests==2.32.5
+python-dotenv==1.2.2
+PyYAML==6.0.3
+
+# Confidence calibration (src/models/calibration.py)
+scikit-learn==1.9.1
+numpy==2.3.4
+
+# API & observability (src/api/app.py)
+fastapi==0.141.1
+uvicorn==0.51.0
+pydantic==2.14.3
+prometheus-client==0.26.0
